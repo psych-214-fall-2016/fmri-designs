@@ -38,9 +38,12 @@ def events2neural(task_fname, duration, dt=0.1):
         raise ValueError("Is {0} really a task file?", task_fname)
     n = int(np.ceil(duration / dt))
     ttc = np.zeros((2, n))
+    # Times row
     ttc[0] = np.arange(n) * dt
     # Convert onsets, durations to dt units.
-    onsets, durations = np.round(task[:, :2] / dt).astype(int).T
-    for onset, duration, amplitude in zip(onsets, durations, task[:, 2]):
+    onsets, durations, amplitudes = task.T
+    onsets = np.round(onsets / dt).astype(int)
+    durations = np.round(durations / dt).astype(int)
+    for onset, duration, amplitude in zip(onsets, durations, amplitudes):
         ttc[1, onset:onset + duration] = amplitude
     return ttc
