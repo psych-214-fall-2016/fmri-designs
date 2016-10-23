@@ -7,9 +7,12 @@ import numpy as np
 import numpy.linalg as npl
 from scipy.interpolate import interp1d
 
+from skimage.filters import threshold_otsu
+import nibabel as nib
+
 from fmri_designs.regressors import (events2neural, poly_drift, deltas_at_rows,
                                      spm_hrf_dt, conds2hrf_cols,
-                                     compile_design, f_tests)
+                                     compile_design, f_tests, f_for_outliers)
 from fmri_designs.tmpdirs import dtemporize
 from fmri_designs.spm_funcs import spm_hrf
 
@@ -164,3 +167,25 @@ def test_f_tests():
     # Test F test results come from the output of R
     assert_almost_equal(F, [0.01197, 0.5955], 4)
     assert (nu_1, nu_2) == (1, 98)
+
+
+def test_f_for_outliers():
+    # More or less smoke test for big-picture routine
+    img_fname = pjoin(HERE, 'group00_sub04_run1.nii')
+    cond_fnames = [pjoin(HERE, 'group00_sub04_run1_cond1.txt'),
+                   pjoin(HERE, 'group00_sub04_run1_cond2.txt'),
+                   pjoin(HERE, 'group00_sub04_run1_cond3.txt'),
+                   pjoin(HERE, 'group00_sub04_run1_cond4.txt')]
+    f, n1, n2 = f_for_outliers(img_fname, cond_fnames, 3.0, [2, 3])
+    # Long manual process
+    data = nib.load(img_fname).get_data()
+    n_trs = data.shape[-1]
+    X_r = compile_design(cond_fnames, 3.0, n_trs)
+    X_f = np.c_[deltas_at_rows([2, 3], n_trs), X_r]
+    mean = data.mean(axis=-1)
+    mask = mean > threshold_otsu(mean)
+    f_vals, nu1, nu2 = f_tests(data[mask].T, X_f, X_r)
+    f_vals_3d = np.zeros_like(mean)
+    f_vals_3d[mask] = f_vals
+    assert_almost_equal(f, f_vals_3d)
+    assert (n1, n2) == (nu1, nu2)
