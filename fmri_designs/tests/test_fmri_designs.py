@@ -11,8 +11,9 @@ from skimage.filters import threshold_otsu
 import nibabel as nib
 
 from fmri_designs.regressors import (events2neural, poly_drift, deltas_at_rows,
-                                     spm_hrf_dt, conds2hrf_cols,
-                                     compile_design, f_tests, f_for_outliers)
+                                     spm_hrf_dt, conds2hrf_cols, f_tests,
+                                     f_tests_3d, f_for_outliers,
+                                     outlier_metrics)
 from fmri_designs.tmpdirs import dtemporize
 from fmri_designs.spm_funcs import spm_hrf
 
@@ -128,7 +129,6 @@ def test_spm_hrf_dt():
 
 def test_conds2hrf_cols():
     # Test function to return design columns for condition files
-    # Also - test compile_design
     cond_fnames = [pjoin(HERE, 'ds114_sub009_t2r1_cond.txt'),
                    pjoin(HERE, 'new_cond.txt')]
     TR = 2.5
@@ -144,13 +144,6 @@ def test_conds2hrf_cols():
     interp1 = interp1d(hr_times, conv, bounds_error=False, fill_value=0)
     hrf_cols_manual = np.c_[interp0(tr_times), interp1(tr_times)]
     assert_almost_equal(hrf_cols, hrf_cols_manual)
-    n_trs = len(tr_times)
-    design = compile_design(cond_fnames, TR, n_trs)
-    p_design = poly_drift(tr_times, order=3)
-    assert_almost_equal(design, np.c_[hrf_cols_manual, p_design])
-    design = compile_design(cond_fnames, TR, n_trs, drift_order=5)
-    p_design = poly_drift(tr_times, order=5)
-    assert_almost_equal(design, np.c_[hrf_cols_manual, p_design])
 
 
 def test_f_tests():
@@ -165,7 +158,21 @@ def test_f_tests():
     X_f[:, 1] = x
     F, nu_1, nu_2 = f_tests(Y, X_f, np.ones((n, 1)))
     # Test F test results come from the output of R
-    assert_almost_equal(F, [0.01197, 0.5955], 4)
+    exp_f = [0.01197, 0.5955]
+    assert_almost_equal(F, exp_f, 4)
+    assert (nu_1, nu_2) == (1, 98)
+    # Test 3D version
+    vol_shape = (2, 3, 4)
+    Y_4d = np.zeros(vol_shape + (n,))
+    mask = np.zeros(vol_shape, dtype=bool)
+    Y_4d[1, 1, 1] = y1
+    Y_4d[1, 1, 2] = y2
+    mask[1, 1, 1] = True
+    mask[1, 1, 2] = True
+    exp_f_3d = np.zeros(vol_shape, dtype=float)
+    exp_f_3d[mask] = exp_f
+    F, nu_1, nu_2 = f_tests_3d(Y_4d, mask, X_f, np.ones((n, 1)))
+    assert_almost_equal(F, exp_f_3d, 4)
     assert (nu_1, nu_2) == (1, 98)
 
 
@@ -176,16 +183,43 @@ def test_f_for_outliers():
                    pjoin(HERE, 'group00_sub04_run1_cond2.txt'),
                    pjoin(HERE, 'group00_sub04_run1_cond3.txt'),
                    pjoin(HERE, 'group00_sub04_run1_cond4.txt')]
-    f, n1, n2 = f_for_outliers(img_fname, cond_fnames, 3.0, [2, 3])
+    tr = 2.0
+    f_1, f_2, f_3, msk = f_for_outliers(img_fname, cond_fnames, tr, [2, 3])
     # Long manual process
     data = nib.load(img_fname).get_data()
     n_trs = data.shape[-1]
-    X_r = compile_design(cond_fnames, 3.0, n_trs)
-    X_f = np.c_[deltas_at_rows([2, 3], n_trs), X_r]
+    tr_times = np.arange(n_trs) * tr
+    hrf_cols = conds2hrf_cols(cond_fnames, tr_times)
+    drift = poly_drift(tr_times, 3)
+    outliers = deltas_at_rows([2, 3], n_trs)
     mean = data.mean(axis=-1)
     mask = mean > threshold_otsu(mean)
-    f_vals, nu1, nu2 = f_tests(data[mask].T, X_f, X_r)
-    f_vals_3d = np.zeros_like(mean)
-    f_vals_3d[mask] = f_vals
-    assert_almost_equal(f, f_vals_3d)
-    assert (n1, n2) == (nu1, nu2)
+    assert_array_equal(mask, msk)
+    f_hrf, h_n1, h_n2 = f_tests_3d(data, mask, np.c_[hrf_cols, drift], drift)
+    assert_array_equal(f_1[0], f_hrf)
+    reduced = np.c_[hrf_cols, drift]
+    f_outliers, o_n1, o_n2 = f_tests_3d(data, mask,
+                                        np.c_[outliers, reduced], reduced)
+    reduced = np.c_[outliers, drift]
+    f_both, b_n1, b_n2 = f_tests_3d(data, mask,
+                                    np.c_[hrf_cols, reduced], reduced)
+    assert_array_equal(f_2[0], f_outliers)
+    assert_array_equal(f_3[0], f_both)
+    # HRF cols 2 and 3 all zero because of truncated data (first 10 vols)
+    assert f_1[1:] == (2, n_trs - 6)
+    assert f_2[1:] == (2, n_trs - 8)
+    assert f_3[1:] == (2, n_trs - 8)
+
+
+def test_outlier_metrics():
+    a = np.random.normal(10, 2, size=(10, 11, 12))
+    b = np.random.normal(10, 2, size=(10, 11, 12))
+    c = np.random.normal(10, 2, size=(10, 11, 12))
+    msk = np.random.normal(10, 2, size=(10, 11, 12)) > 0.2
+    n = np.sum(msk)
+    first, second, third, d = outlier_metrics((a, 1, 1), (b, 1, 1), 
+                                              (c, 1, 1), msk)
+    assert first == a[msk].sum() / n
+    assert second == b[msk].sum() / n
+    assert third == c[msk].sum() / n
+    assert d == third - first

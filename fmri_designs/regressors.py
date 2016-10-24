@@ -160,69 +160,32 @@ def conds2hrf_cols(cond_fnames, tr_times):
     return np.column_stack(cols)
 
 
-def compile_design(cond_fnames, tr, n_trs, drift_order=3):
-    """ Compile design with condition `cond_fnames` and polynomial drift
+def f_tests_3d(Y_4d, mask, X_f, X_r):
+    """ F tests on 4D data, returning 3D result.
 
     Parameters
     ----------
-    cond_fnames : sequence
-        Length C sequence of condition filenames.
-    tr : float
-        TR in seconds.
-    n_trs : int
-        Number of TRs.
-    drift_order : int, optional
-        Order of polynomial drift.
+    Y_4d : array shape (I, J, K, T)
+        4D data, analysis (row) dimension last.
+    mask : bool array shape (I, J, K)
+        mask defining voxels to analyze in `Y_4d`.
+    X_f : array shape (T, P_f)
+        full design for F test, where P_f >= P_r
+    X_r : array shape (T, P_r)
+        reduced design for F tests, where P_r >= P_f
 
     Returns
     -------
-    design : array shape ('n_trs`, C + `drift_order` + 1)
-        design matrix with HRF columns first, drift columns following.  Vector
-        of ones is last.
+    f_vals : array shape (I, J, K)
+        volume of F test values, zero where `mask` is False.
+    n_1 : int
+        degrees of freedom difference between `X_f` and `X_r`.
+    n_3 : int
+        degrees of freedom of error for `X_f` = T - rank(X_f).
     """
-    tr_times = np.arange(n_trs) * tr
-    hrf_cols = conds2hrf_cols(cond_fnames, tr_times)
-    drift = poly_drift(tr_times, drift_order)
-    return np.c_[hrf_cols, drift]
-
-
-def f_for_outliers(image_fname, cond_fnames, tr, drop_rows, drift_order=3):
-    """ F tests including outlier regressors
-
-    Parameters
-    ----------
-    image_fname : str
-        filename for image.
-    cond_fnames : sequence of str
-        list of filenames for condition files.
-    tr : float
-        TR
-    drop_rows : sequence
-        rows to drop.
-    drift_order, int, optional
-        order for polynomial drift time.
-
-    Returns
-    -------
-    f_test_3d : array
-        3D array of F test values.
-    nu_1 : float
-        degrees of freedom difference between full and reduced design.
-    nu_2 : float
-        degrees of freedume due to error for full design (including outlier
-        regressors).
-    """
-    data = nib.load(image_fname).get_data()
-    n_trs = data.shape[-1]
-    mean = data.mean(axis=-1)
-    thresh = threshold_otsu(mean)
-    mask = mean > thresh
-    X_r = compile_design(cond_fnames, tr, n_trs, drift_order)
-    X_extra = deltas_at_rows(drop_rows, n_trs)
-    X_f = np.c_[X_extra, X_r]
-    in_data_2d = data[mask].T
-    f_tests_1d, nu_1, nu_2 = f_tests(in_data_2d, X_f, X_r)
-    f_tests_3d = np.zeros(mean.shape)
+    Y = Y_4d[mask].T
+    f_tests_1d, nu_1, nu_2 = f_tests(Y, X_f, X_r)
+    f_tests_3d = np.zeros(Y_4d.shape[:3])
     f_tests_3d[mask] = f_tests_1d
     return f_tests_3d, nu_1, nu_2
 
@@ -259,3 +222,81 @@ def f_tests(Y, X_f, X_r):
     nu_1 = rank_f - rank_r
     nu_2 = X_f.shape[0] - rank_f
     return (SSR_r - SSR_f) / nu_1 / (SSR_f / nu_2), nu_1, nu_2
+
+
+def f_for_outliers(image_fname, cond_fnames, tr, drop_rows, drift_order=3):
+    """ F tests including outlier regressors
+
+    Parameters
+    ----------
+    image_fname : str
+        filename for image.  Say image shape is (I, J, K, T).
+    cond_fnames : sequence of str
+        list of filenames for condition files.
+    tr : float
+        TR
+    drop_rows : sequence
+        rows to drop.
+    drift_order, int, optional
+        order for polynomial drift time.
+
+    Returns
+    -------
+    f_hrf : length 3 tuple
+        tuple of (f_vals, n1, n2) for F test of adding HRF regressors to drift.
+        where ``f_vals`` is an array shape (I, J, K) of F values, ``n1`` is
+        extra degrees of freedom in design with HRF columns, ``n2`` is
+        degrees of freedom due to error in design with HRF columns.
+    f_outliers : length 3 tuple
+        tuple of (f_vals, n1, n2) for F test of adding outlier regressors to
+        HRF and drift.  where ``f_vals`` is an array shape (I, J, K) of F
+        values, ``n1`` is extra degrees of freedom in design with outlier
+        columns, ``n2`` is degrees of freedom due to error in design with
+        outlier columns.
+    f_hrf_with_outliers : length 3 tuple
+        tuple of (f_vals, n1, n2) for F test of adding HRF regressors to drift
+        plus outliers specified in `drop_rows`, where ``f_vals`` is an array
+        shape (I, J, K) of F values, ``n1`` is extra degrees of freedom in
+        design with HRF columns, ``n2`` is degrees of freedom due to error in
+        design with HRF columns.
+    mask : boolean array shape (I, J, K)
+        True for voxels analyzed in F test, False otherwise.
+    """
+    data = nib.load(image_fname).get_data()
+    n_trs = data.shape[-1]
+    mean = data.mean(axis=-1)
+    thresh = threshold_otsu(mean)
+    mask = mean > thresh
+    tr_times = np.arange(n_trs) * tr
+    X_hrf = conds2hrf_cols(cond_fnames, tr_times)
+    X_drift = poly_drift(tr_times, drift_order)
+    X_outliers = deltas_at_rows(drop_rows, n_trs)
+    f_hrf = f_tests_3d(data, mask, np.c_[X_hrf, X_drift], X_drift)
+    X_r = np.c_[X_hrf, X_drift]
+    f_outliers = f_tests_3d(data, mask, np.c_[X_outliers, X_r], X_r)
+    X_r = np.c_[X_outliers, X_drift]
+    f_hrf_with_outliers = f_tests_3d(data, mask, np.c_[X_hrf, X_r], X_r)
+    return f_hrf, f_outliers, f_hrf_with_outliers, mask
+
+
+def outlier_metrics(f_1, f_2, f_3, mask):
+    """ Return mean of F inside mask for before and after F test results
+
+    Parameters
+    ----------
+    f_1 : length 3 tuple
+        tuple of (f_vals, n1, n2) for F test where ``f_vals`` is an array shape
+        (I, J, K) of F values, ``n1`` is extra degrees of freedom in full
+        design, ``n2`` is degrees of freedom due to error in full design.
+    f_2 : length 3 tuple
+        tuple of same format as `f_1`.
+    f_2 : length 3 tuple
+        tuple of same format as `f_1`.
+    mask : boolean array shape (I, J, K)
+        True for voxels analyzed in F test, False otherwise.
+    """
+    n = np.sum(mask)
+    f_1_mean = f_1[0].sum() / n
+    f_2_mean = f_2[0].sum() / n
+    f_3_mean = f_3[0].sum() / n
+    return f_1_mean, f_2_mean, f_3_mean, f_3_mean - f_1_mean
