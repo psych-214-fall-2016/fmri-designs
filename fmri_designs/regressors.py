@@ -154,8 +154,10 @@ def conds2hrf_cols(cond_fnames, tr_times):
         conv = np.convolve(neural, hrf)[:len(neural)]
         # The dt sample times may not exactly correspond to the the tr_times -
         # make a linear interpolator to sample the high-res dt samples at the
-        # TR times.
+        # TR times.  The interpolator accepts a vector of x and y.
         interp = interp1d(hr_times, conv, bounds_error=False, fill_value=0)
+        # Call the interpolator with the x values we want new y values for. See
+        # the docstring for `scipy.interpolate.interp1d for detail.
         cols.append(interp(tr_times))
     return np.column_stack(cols)
 
