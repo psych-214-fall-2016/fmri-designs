@@ -15,7 +15,7 @@ def test_regression(capsys):
     assert parse_outlier_file(outlier_fname) == {'group00_sub04_run1.nii':
                                                  [2, 3]}
     print_metrics(outlier_fname, HERE, pjoin(HERE, 'conds'), 3.0,
-                  subjects=(4,), runs=(1,))
+                  0, subjects=(4,), runs=(1,))
     out, err = capsys.readouterr()
     assert out == """\
   outliers       HRF   HRF+out HRF+out - HRF

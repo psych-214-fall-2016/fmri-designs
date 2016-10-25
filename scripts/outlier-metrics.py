@@ -6,12 +6,9 @@ import sys
 from fmri_designs.metrics import print_metrics
 
 
-# TR for given dataset
-TR = 3.0
-
-
 def main():
-    print_metrics(sys.argv[1], sys.argv[2], sys.argv[3], TR)
+    outlier_path, image_path, cond_path, tr, group = sys.argv[1:6]
+    print_metrics(outlier_path, image_path, cond_path, float(tr), int(group))
 
 
 if __name__ == '__main__':

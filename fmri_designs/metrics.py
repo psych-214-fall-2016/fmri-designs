@@ -10,13 +10,13 @@ from fmri_designs import (f_for_outliers, outlier_metrics, get_image,
 
 
 def print_metrics(outlier_path, image_path, cond_path, tr,
-                 subjects=range(1, 11), runs=(1, 2)):
+                 group, subjects=range(1, 11), runs=(1, 2)):
     outliers = parse_outlier_file(outlier_path)
     metrics = []
     for subject in subjects:
         for run in runs:
-            img_fname = get_image(image_path, '*', subject, run)
-            cond_fnames = get_conds(cond_path, '*', subject, run)
+            img_fname = get_image(image_path, group, subject, run)
+            cond_fnames = get_conds(cond_path, group, subject, run)
             if img_fname is None or cond_fnames == []:
                 raise ValueError("Cannot find image and conditions")
             img_base = basename(img_fname)
