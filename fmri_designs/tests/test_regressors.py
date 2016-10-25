@@ -1,4 +1,6 @@
-""" Tests for fmri_designs package
+""" Tests for regressors module.
+
+Tests in ``py.test`` format.
 """
 
 from os.path import dirname, join as pjoin
@@ -10,10 +12,10 @@ from scipy.interpolate import interp1d
 from skimage.filters import threshold_otsu
 import nibabel as nib
 
-from fmri_designs.regressors import (events2neural, poly_drift, deltas_at_rows,
-                                     spm_hrf_dt, conds2hrf_cols, f_tests,
-                                     f_tests_3d, f_for_outliers,
-                                     outlier_metrics)
+from fmri_designs.regressors import (events2neural_hr, poly_drift,
+                                     deltas_at_rows, spm_hrf_dt,
+                                     conds2hrf_cols, f_tests, f_tests_3d,
+                                     f_for_outliers, outlier_metrics)
 from fmri_designs.tmpdirs import dtemporize
 from fmri_designs.spm_funcs import spm_hrf
 
@@ -35,13 +37,13 @@ COND_TEST_FNAME = 'cond_test1.txt'
 
 # Work in temporary directory
 @dtemporize
-def test_events2neural_simple():
-    # test events2neural function
+def test_events2neural_hr_simple():
+    # test events2neural_hr function
     # Write condition test file
     with open(COND_TEST_FNAME, 'wt') as fobj:
         fobj.write(COND_TEST)
     # Read it back
-    times_neural = events2neural(COND_TEST_FNAME, 32, dt=2.)
+    times_neural = events2neural_hr(COND_TEST_FNAME, 32, dt=2.)
     assert times_neural.shape == (2, 16)
     times, neural = times_neural
     assert_array_equal(times, np.arange(0, 32, 2))
@@ -51,7 +53,7 @@ def test_events2neural_simple():
     expected[10:12] = 2
     expected[12] = 0.1
     assert_array_equal(neural, expected)
-    times, neural = events2neural(COND_TEST_FNAME, 30, dt=1.)
+    times, neural = events2neural_hr(COND_TEST_FNAME, 30, dt=1.)
     assert_array_equal(times, np.arange(30))
     # Expected values for tr=1, n_trs=30
     expected = np.zeros(30)
@@ -60,15 +62,15 @@ def test_events2neural_simple():
     expected[24:26] = 0.1
     assert_array_equal(neural, expected)
     # Extend duration, more zeros in neural
-    times, neural = events2neural(COND_TEST_FNAME, 40, dt=1.)
+    times, neural = events2neural_hr(COND_TEST_FNAME, 40, dt=1.)
     assert_array_equal(times, np.arange(40))
     assert_array_equal(neural, np.concatenate((expected, np.zeros(10))))
     # Drop duration, truncates
-    times, neural = events2neural(COND_TEST_FNAME, 20, dt=1.)
+    times, neural = events2neural_hr(COND_TEST_FNAME, 20, dt=1.)
     assert_array_equal(times, np.arange(20))
     assert_array_equal(neural, expected[:20])
     # dt of 0.1
-    times, neural = events2neural(COND_TEST_FNAME, 30, dt=0.1)
+    times, neural = events2neural_hr(COND_TEST_FNAME, 30, dt=0.1)
     assert_array_equal(times, np.arange(0, 30, 0.1))
     # Expected values for tr=0.1, n_trs=300
     expected = np.zeros(300)
@@ -77,7 +79,7 @@ def test_events2neural_simple():
     expected[240:260] = 0.1
     assert_array_equal(neural, expected)
     # 0.1 is the default
-    times, neural = events2neural(COND_TEST_FNAME, 30)
+    times, neural = events2neural_hr(COND_TEST_FNAME, 30)
     assert_array_equal(times, np.arange(0, 30, 0.1))
     assert_array_equal(neural, expected)
 
@@ -137,10 +139,10 @@ def test_conds2hrf_cols():
     hrf_cols = conds2hrf_cols(cond_fnames, tr_times)
     # Now go the slow way round
     hrf = spm_hrf(np.arange(0, 30, 0.1))
-    hr_times, neural = events2neural(cond_fnames[0], 410)
+    hr_times, neural = events2neural_hr(cond_fnames[0], 410)
     conv = np.convolve(neural, hrf)[:len(neural)]
     interp0 = interp1d(hr_times, conv, bounds_error=False, fill_value=0)
-    hr_times, neural = events2neural(cond_fnames[1], 410)
+    hr_times, neural = events2neural_hr(cond_fnames[1], 410)
     conv = np.convolve(neural, hrf)[:len(neural)]
     interp1 = interp1d(hr_times, conv, bounds_error=False, fill_value=0)
     hrf_cols_manual = np.c_[interp0(tr_times), interp1(tr_times)]

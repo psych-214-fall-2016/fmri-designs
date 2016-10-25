@@ -1,4 +1,4 @@
-""" Functions to work with standard OpenFMRI stimulus files
+""" Functions to create regressors for design matrices.
 
 The functions have docstrings according to the numpy docstring standard - see:
 
@@ -15,8 +15,8 @@ import nibabel as nib
 from .spm_funcs import spm_hrf
 
 
-def events2neural(task_fname, duration, dt=0.1):
-    """ Return predicted neural time course from event file `task_fname`
+def events2neural_hr(task_fname, duration, dt=0.1):
+    """ High-resolution neural time course from event file `task_fname`
 
     Predicted time course is length `duration` seconds, divided into `dt`
     second intervals.
@@ -58,7 +58,7 @@ def events2neural(task_fname, duration, dt=0.1):
 
 
 def poly_drift(times, order=3):
-    """ Return design columns modeling polynomial drift over time
+    """ Return design columns modeling polynomial drift over time.
 
     Parameters
     ----------
@@ -72,15 +72,18 @@ def poly_drift(times, order=3):
     drift_design : array shape (N, order + 1)
         design matrix modeling polynomial drift.  Columns ordered from higher
         to lower order terms, with column of 1 at the right, for order 0.
-        Except for 0-order column, columns are vector length 1.
+        Except for 0-order column, columns have vector length 1.
     """
     times = np.array(times).astype(float)
     N = len(times)
+    # Linear drift with mean 0
     linear = times - times.mean()
     design = np.ones((N, order + 1))
     for order in range(1, order + 1):
         col = linear ** order
+        # Set column to have mean 0.
         col -= col.mean()
+        # Normalize column to vector length 1
         design[:, order] = col / np.sqrt(np.sum(col ** 2))
     return np.fliplr(design)
 
@@ -99,8 +102,8 @@ def deltas_at_rows(rows, N):
     -------
     delta_design : array shape (N, R)
         design matrix for modeling the effects of observations at rows given in
-        `rows`.   For each ``row`` in `rows`, `delta_design` has a column of
-        all zeros except for a single 1 at row index ``row``.
+        `rows`.  For each ``row`` in `rows`, `delta_design` has a column of all
+        zeros except for a single 1 at row index ``row``.
     """
     R = len(rows)
     delta_design = np.zeros((N, R))
@@ -149,12 +152,13 @@ def conds2hrf_cols(cond_fnames, tr_times):
     cols = []
     for cond_fname in cond_fnames:
         # Get the neural time course, sampled at default dt
-        hr_times, neural = events2neural(cond_fname, duration)
+        hr_times, neural = events2neural_hr(cond_fname, duration)
         # Convolve with HRF, and drop extra HRF tail
         conv = np.convolve(neural, hrf)[:len(neural)]
         # The dt sample times may not exactly correspond to the the tr_times -
         # make a linear interpolator to sample the high-res dt samples at the
-        # TR times.  The interpolator accepts a vector of x and y.
+        # TR times.  The interpolator accepts a vector of x and y for the known
+        # values.
         interp = interp1d(hr_times, conv, bounds_error=False, fill_value=0)
         # Call the interpolator with the x values we want new y values for. See
         # the docstring for `scipy.interpolate.interp1d for detail.
@@ -172,7 +176,7 @@ def f_tests_3d(Y_4d, mask, X_f, X_r):
     mask : bool array shape (I, J, K)
         mask defining voxels to analyze in `Y_4d`.
     X_f : array shape (T, P_f)
-        full design for F test, where P_f >= P_r
+        full design for F tests, where P_f >= P_r
     X_r : array shape (T, P_r)
         reduced design for F tests, where P_r >= P_f
 
@@ -182,7 +186,7 @@ def f_tests_3d(Y_4d, mask, X_f, X_r):
         volume of F test values, zero where `mask` is False.
     n_1 : int
         degrees of freedom difference between `X_f` and `X_r`.
-    n_3 : int
+    n_2 : int
         degrees of freedom of error for `X_f` = T - rank(X_f).
     """
     Y = Y_4d[mask].T
@@ -246,23 +250,17 @@ def f_for_outliers(image_fname, cond_fnames, tr, drop_rows, drift_order=3):
     -------
     f_hrf : length 3 tuple
         tuple of (f_vals, n1, n2) for F test of adding HRF regressors to drift.
-        where ``f_vals`` is an array shape (I, J, K) of F values, ``n1`` is
-        extra degrees of freedom in design with HRF columns, ``n2`` is
-        degrees of freedom due to error in design with HRF columns.
+        ``f_vals`` is an array shape (I, J, K) of F values, ``n1`` is extra
+        degrees of freedom in design with HRF columns, ``n2`` is degrees of
+        freedom due to error in design with HRF columns.
     f_outliers : length 3 tuple
-        tuple of (f_vals, n1, n2) for F test of adding outlier regressors to
-        HRF and drift.  where ``f_vals`` is an array shape (I, J, K) of F
-        values, ``n1`` is extra degrees of freedom in design with outlier
-        columns, ``n2`` is degrees of freedom due to error in design with
-        outlier columns.
+        tuple of same format as `f_hrf` where reduced model is HRF and drift,
+        full model adds outlier regressors.
     f_hrf_with_outliers : length 3 tuple
-        tuple of (f_vals, n1, n2) for F test of adding HRF regressors to drift
-        plus outliers specified in `drop_rows`, where ``f_vals`` is an array
-        shape (I, J, K) of F values, ``n1`` is extra degrees of freedom in
-        design with HRF columns, ``n2`` is degrees of freedom due to error in
-        design with HRF columns.
+        tuple of same format as `f_hrf` where reduced model is outliers and
+        drift, full model adds HRF regressors.
     mask : boolean array shape (I, J, K)
-        True for voxels analyzed in F test, False otherwise.
+        True for voxels to be analyzed with F test, False otherwise.
     """
     data = nib.load(image_fname).get_data()
     n_trs = data.shape[-1]
@@ -274,10 +272,12 @@ def f_for_outliers(image_fname, cond_fnames, tr, drop_rows, drift_order=3):
     X_drift = poly_drift(tr_times, drift_order)
     X_outliers = deltas_at_rows(drop_rows, n_trs)
     f_hrf = f_tests_3d(data, mask, np.c_[X_hrf, X_drift], X_drift)
-    X_r = np.c_[X_hrf, X_drift]
-    f_outliers = f_tests_3d(data, mask, np.c_[X_outliers, X_r], X_r)
-    X_r = np.c_[X_outliers, X_drift]
-    f_hrf_with_outliers = f_tests_3d(data, mask, np.c_[X_hrf, X_r], X_r)
+    f_outliers = f_tests_3d(data, mask,
+                            np.c_[X_outliers, X_hrf, X_drift],
+                            np.c_[X_hrf, X_drift])
+    f_hrf_with_outliers = f_tests_3d(data, mask,
+                                     np.c_[X_hrf, X_outliers, X_drift],
+                                     np.c_[X_outliers, X_drift])
     return f_hrf, f_outliers, f_hrf_with_outliers, mask
 
 
