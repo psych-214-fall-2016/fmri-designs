@@ -21,6 +21,7 @@ import pytest
 from numpy.testing import assert_array_equal, assert_almost_equal
 
 HERE = dirname(__file__)
+CONDS = pjoin(HERE, 'conds')
 
 # Example onset, duration, amplitude triplets
 COND_TEST = """\
@@ -179,10 +180,10 @@ def test_f_tests():
 def test_f_for_outliers():
     # More or less smoke test for big-picture routine
     img_fname = pjoin(HERE, 'group00_sub04_run1.nii')
-    cond_fnames = [pjoin(HERE, 'group00_sub04_run1_cond1.txt'),
-                   pjoin(HERE, 'group00_sub04_run1_cond2.txt'),
-                   pjoin(HERE, 'group00_sub04_run1_cond3.txt'),
-                   pjoin(HERE, 'group00_sub04_run1_cond4.txt')]
+    cond_fnames = [pjoin(CONDS, 'group00_sub04_run1_cond1.txt'),
+                   pjoin(CONDS, 'group00_sub04_run1_cond2.txt'),
+                   pjoin(CONDS, 'group00_sub04_run1_cond3.txt'),
+                   pjoin(CONDS, 'group00_sub04_run1_cond4.txt')]
     tr = 2.0
     f_1, f_2, f_3, msk = f_for_outliers(img_fname, cond_fnames, tr, [2, 3])
     # Long manual process

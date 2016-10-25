@@ -6,7 +6,7 @@ from glob import glob
 import re
 
 
-def fetch_image(path, group, subject, run):
+def get_image(path, group, subject, run):
     """ Get image filename from `path` for given `group`, `subject` and `run`
     """
     group = group if isinstance(group, str) else '{:02d}'.format(group)
@@ -17,7 +17,7 @@ def fetch_image(path, group, subject, run):
     return image[0] if len(image) == 1 else None
 
 
-def fetch_conds(path, group, subject, run):
+def get_conds(path, group, subject, run):
     """ Condition filenames from `path` for given `group`, `subject` and `run`
     """
     group = group if isinstance(group, str) else '{:02d}'.format(group)

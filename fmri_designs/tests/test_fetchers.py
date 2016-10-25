@@ -3,7 +3,7 @@
 
 from os.path import dirname, join as pjoin
 
-from fmri_designs.fetchers import fetch_image, fetch_conds, parse_outlier_file
+from fmri_designs.fetchers import get_image, get_conds, parse_outlier_file
 
 from fmri_designs.tmpdirs import dtemporize
 
@@ -13,15 +13,15 @@ THERE = pjoin(HERE, 'conds')
 
 def test_files_for_image():
     for group in (0, '*'):
-        image = fetch_image(HERE, group, 4, 1)
+        image = get_image(HERE, group, 4, 1)
         assert image == pjoin(HERE, 'group00_sub04_run1.nii')
-        conds = fetch_image(THERE, group, 4, 1)
-        assert conds == [pjoin(HERE, 'group00_sub04_run1_cond1.txt'),
-                        pjoin(HERE, 'group00_sub04_run1_cond2.txt'),
-                        pjoin(HERE, 'group00_sub04_run1_cond3.txt'),
-                        pjoin(HERE, 'group00_sub04_run1_cond4.txt')]
-        assert fetch_image(HERE, group, 3, 1) is None
-        assert fetch_conds(THERE, group, 3, 1) == []
+        conds = get_conds(THERE, group, 4, 1)
+        assert conds == [pjoin(THERE, 'group00_sub04_run1_cond1.txt'),
+                         pjoin(THERE, 'group00_sub04_run1_cond2.txt'),
+                         pjoin(THERE, 'group00_sub04_run1_cond3.txt'),
+                         pjoin(THERE, 'group00_sub04_run1_cond4.txt')]
+        assert get_image(HERE, group, 3, 1) is None
+        assert get_conds(THERE, group, 3, 1) == []
 
 
 @dtemporize
